@@ -114,7 +114,7 @@ setup_conda_environment() {
 
     conda activate llm-venv
     log_info "Conda virtual environment 'llm-venv' activated."
-    pip config set global.index-url https://mirrors.aliyun.com/pypi/simple/
+    #pip config set global.index-url https://mirrors.aliyun.com/pypi/simple/
 }
 
 install_with_spinner() {
