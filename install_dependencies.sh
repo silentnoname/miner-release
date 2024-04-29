@@ -172,3 +172,5 @@ main() {
     setup_conda_environment
     install_dependencies
     }
+
+main "$@"
