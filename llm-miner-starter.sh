@@ -15,47 +15,7 @@ log_error() {
     echo -e "\033[0;31mERROR: $1\033[0m" >&2
 }
 
-# Function to check command prerequisites and report all missing dependencies
-check_prerequisites() {
-    local missing_prerequisites=()
-    # Base prerequisites without considering Python venv yet
-    local prerequisites=("jq" "wget" "bc")
 
-    # Determine the default Python version
-    local python_version=$(python3 --version 2>&1 | grep -oP 'Python \K[0-9]+\.[0-9]+')
-
-    # Decide whether to check for python3-venv or python3.8-venv based on Python version
-    if [[ "$python_version" =~ ^3\.(8|9|10|11)$ ]]; then
-        prerequisites+=("python3-venv")
-    else
-        prerequisites+=("python3.8-venv")
-    fi
-
-    for prerequisite in "${prerequisites[@]}"; do
-        # Handle Python venv packages separately
-        if [[ "$prerequisite" == "python3-venv" || "$prerequisite" == "python3.8-venv" ]]; then
-            if ! dpkg -l | grep -q "$prerequisite"; then
-                missing_prerequisites+=("$prerequisite")
-            fi
-        # Check for the presence of other executable commands
-        elif ! command -v "$prerequisite" &> /dev/null; then
-            missing_prerequisites+=("$prerequisite")
-        fi
-    done
-
-    if [ ${#missing_prerequisites[@]} -eq 0 ]; then
-        log_info "All prerequisites are satisfied."
-    else
-        for missing in "${missing_prerequisites[@]}"; do
-            if [[ "$missing" == "python3-venv" || "$missing" == "python3.8-venv" ]]; then
-                log_error "$missing is not installed but is required. Please install $missing with the following command: sudo apt update && sudo apt upgrade && sudo apt install software-properties-common && sudo add-apt-repository ppa:deadsnakes/ppa && sudo apt install $missing"
-            else
-                log_error "$missing is not installed but is required. Please install $missing with the following command: sudo apt update && sudo apt install $missing"
-            fi
-        done
-        exit 1
-    fi
-}
 
 # Validate internet connectivity to essential services
 validate_connectivity() {
@@ -72,35 +32,6 @@ validate_connectivity() {
     done
 }
 
-setup_venv_environment() {
-    local env_dir="llm-venv"
-    local cfg_file="$env_dir/pyvenv.cfg"
-    
-    # Function to parse the Python version from pyvenv.cfg
-    get_python_version_from_venv() {
-        local version_line=$(grep 'version = ' "$cfg_file")
-        echo "$version_line" | cut -d ' ' -f 3
-    }
-
-    if [ -d "$env_dir" ] && [ -f "$cfg_file" ]; then
-        local venv_python_version=$(get_python_version_from_venv)
-        if [[ "$venv_python_version" =~ ^3\.(8|9|10|11)(\.[0-9]+)?$ ]]; then
-            log_info "Virtual environment exists with Python version $venv_python_version, which is within the desired range."
-        else
-            log_info "Virtual environment detected with Python version $venv_python_version, which is outside the desired range. Recreating environment..."
-            rm -rf "$env_dir"
-            python3 -m venv "$env_dir"
-            log_info "Virtual environment re-created with the current Python version."
-        fi
-    elif [ ! -d "$env_dir" ]; then
-        log_info "Creating a new virtual environment with venv..."
-        python3 -m venv "$env_dir"
-        log_info "Virtual environment created."
-    fi
-
-    source "$env_dir/bin/activate"
-    log_info "Virtual environment activated."
-}
 
 setup_conda_environment() {
     log_info "Updating package lists..."
@@ -146,54 +77,8 @@ setup_conda_environment() {
     log_info "Conda virtual environment 'llm-venv' activated."
 }
 
-install_with_spinner() {
-    local dep=$1
-    (
-        pip install "$dep" > /dev/null 2>&1
-        echo $? > /tmp/install_exit_status.tmp
-    ) &
 
-    pid=$! # PID of the pip install process
-    spinner="/-\|"
-
-    # Use printf for consistent formatting
-    printf "Installing %-20s" "$dep..."
-
-    while kill -0 $pid 2> /dev/null; do
-        for i in $(seq 0 3); do
-            printf "\b${spinner:i:1}"
-            sleep 0.2
-        done
-    done
-
-    wait $pid
-    exit_status=$(cat /tmp/install_exit_status.tmp)
-    rm /tmp/install_exit_status.tmp
-
-    if [ $exit_status -eq 0 ]; then
-        printf "\b Done.\n"
-    else
-        printf "\b Failed.\n"
-        return 1
-    fi
-}
-
-# Example usage for your dependency installation function
-install_dependencies() {
-    log_info "Installing Python dependencies..."
-    local dependencies=("vllm" "python-dotenv" "toml" "openai" "triton==2.1.0" "wheel" "packaging" "psutil")
-
-    for dep in "${dependencies[@]}"; do
-        if ! install_with_spinner "$dep"; then
-            log_error "Failed to install $dep."
-            exit 1
-        fi
-    done
-
-    log_info "All dependencies installed successfully."
-}
-
-# Retrieve model size, quantization and name information 
+# Retrieve model size, quantization and name information
 fetchModelDetails() {
     local heurist_model_id="$1"
     log_info "Fetching model details for $heurist_model_id..."
@@ -286,11 +171,8 @@ getModelId() {
 
 main() {
     log_info "Starting script execution..."
-
-    check_prerequisites
     validate_connectivity
     setup_conda_environment
-    install_dependencies
 
     # Default values for the new arguments
     local miner_id_index=0
